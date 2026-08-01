@@ -1220,6 +1220,16 @@ select {
   padding: 20px;
 }
 
+/*
+ * The scrim is shared with the drawer, where it sits at 400 underneath a
+ * sibling drawer at 401. Inside the modal it is not a sibling, it is a child,
+ * so 400 would paint it over the card at 2 and swallow every click on the
+ * wallet list. Stacking is local to .modal here, so 1 is all it needs.
+ */
+.modal .scrim {
+  z-index: 1;
+}
+
 .modal-card {
   width: min(430px, 100%);
   background: var(--paper);
