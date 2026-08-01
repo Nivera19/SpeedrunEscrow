@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useWallet } from "@/lib/wallet";
 import { formatGen, shortAddress } from "@/lib/format";
-import { CHAIN, FAUCET_URL } from "@/lib/chain";
+import { CHAIN, EXPLORER_URL, FAUCET_URL, RPC_URL } from "@/lib/chain";
 
 export function Nav() {
   const {
@@ -20,10 +20,20 @@ export function Nav() {
     clearError,
   } = useWallet();
   const [picking, setPicking] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
 
   const onConnect = async (target: (typeof wallets)[number]) => {
-    await connect(target);
-    setPicking(false);
+    setPending(target.rdns);
+    const ok = await connect(target);
+    setPending(null);
+    // Only dismiss on a clean connection. Closing on failure is how the last
+    // version swallowed every error message before anyone could read it.
+    if (ok) setPicking(false);
+  };
+
+  const openPicker = () => {
+    clearError();
+    setPicking(true);
   };
 
   return (
@@ -70,7 +80,7 @@ export function Nav() {
             ) : (
               <button
                 className="btn btn-lime"
-                onClick={() => setPicking(true)}
+                onClick={openPicker}
                 disabled={connecting}
               >
                 {connecting ? <span className="spin" /> : null}
@@ -105,12 +115,18 @@ export function Nav() {
             </p>
 
             {error && (
-              <div
-                className="notice notice-bad"
-                style={{ marginBottom: 14 }}
-                onClick={clearError}
-              >
+              <div className="notice notice-bad" style={{ marginBottom: 14 }}>
+                <strong>Could not connect.</strong>
+                <br />
                 {error}
+                <br />
+                <button
+                  className="btn btn-sm"
+                  style={{ marginTop: 10 }}
+                  onClick={clearError}
+                >
+                  Dismiss
+                </button>
               </div>
             )}
 
@@ -139,14 +155,39 @@ export function Nav() {
                       W
                     </span>
                   )}
-                  {w.name}
+                  <span style={{ flex: 1 }}>{w.name}</span>
+                  {pending === w.rdns && <span className="spin" />}
                 </button>
               ))}
             </div>
 
             <hr className="hr" style={{ margin: "20px 0 16px" }} />
 
-            <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <details>
+              <summary
+                className="muted"
+                style={{ fontSize: 12.5, cursor: "pointer" }}
+              >
+                Wallet will not add the network? Add it by hand.
+              </summary>
+              <div
+                className="mono"
+                style={{ fontSize: 11.5, lineHeight: 1.9, marginTop: 10 }}
+              >
+                <div>Name: {CHAIN.name}</div>
+                <div style={{ wordBreak: "break-all" }}>RPC: {RPC_URL}</div>
+                <div>Chain ID: {CHAIN.id}</div>
+                <div>Symbol: {CHAIN.nativeCurrency.symbol}</div>
+                <div style={{ wordBreak: "break-all" }}>
+                  Explorer: {EXPLORER_URL}
+                </div>
+              </div>
+            </details>
+
+            <p
+              className="muted"
+              style={{ fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}
+            >
               Testnet GEN is free. Grab some from the{" "}
               <a
                 className="link-plain"
@@ -162,13 +203,20 @@ export function Nav() {
         </div>
       )}
 
-      {wallet && !chainOk && (
-        <div
-          className="band band-lime"
-          style={{ padding: "10px 0", textAlign: "center", fontSize: 13.5 }}
-        >
-          <strong>Wrong network.</strong> Switch your wallet to {CHAIN.name} to
-          send transactions.
+      {wallet && !chainOk && !picking && (
+        <div className="band band-lime" style={{ padding: "12px 0" }}>
+          <div
+            className="wrap row"
+            style={{ justifyContent: "center", fontSize: 13.5 }}
+          >
+            <span>
+              <strong>Connected, but on the wrong network.</strong>{" "}
+              {error ?? `Switch to ${CHAIN.name} to send transactions.`}
+            </span>
+            <button className="btn btn-sm" onClick={switchChain}>
+              Switch to Bradbury
+            </button>
+          </div>
         </div>
       )}
     </>

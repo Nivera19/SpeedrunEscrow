@@ -38,6 +38,73 @@ declare global {
 
 const STORAGE_KEY = "speedrun-escrow.wallet";
 
+/* ------------------------------------------------------------------ */
+/* Chain switching helpers                                             */
+/* ------------------------------------------------------------------ */
+
+function buildAddChainParams() {
+  const explorer = CHAIN.blockExplorers?.default.url;
+  // Only keys the EIP-3085 payload actually defines. Wallets reject the whole
+  // request when they see an unexpected field, and an explicit undefined still
+  // counts as present in some implementations.
+  const params: Record<string, unknown> = {
+    chainId: CHAIN_ID_HEX,
+    chainName: CHAIN.name,
+    rpcUrls: [RPC_URL],
+    nativeCurrency: {
+      name: CHAIN.nativeCurrency.name,
+      symbol: CHAIN.nativeCurrency.symbol,
+      decimals: CHAIN.nativeCurrency.decimals,
+    },
+  };
+  if (explorer) params.blockExplorerUrls = [explorer.replace(/\/$/, "")];
+  return params;
+}
+
+function errorText(err: any): string {
+  return String(
+    err?.data?.originalError?.message ??
+      err?.data?.message ??
+      err?.message ??
+      err ??
+      ""
+  );
+}
+
+function errorCode(err: any): number | undefined {
+  return err?.code ?? err?.data?.originalError?.code ?? err?.data?.code;
+}
+
+function isUnknownChainError(err: any): boolean {
+  if (errorCode(err) === 4902) return true;
+  return /unrecognized chain|unknown chain|chain .*not (been )?added|try adding the chain/i.test(
+    errorText(err)
+  );
+}
+
+/** Turn wallet RPC errors into something a person can act on. */
+function describeWalletError(err: any, walletName: string): string {
+  const code = errorCode(err);
+  const text = errorText(err);
+
+  if (code === 4001 || /user rejected|user denied/i.test(text)) {
+    return "You dismissed the request in your wallet.";
+  }
+  if (code === -32002 || /already pending|request of type/i.test(text)) {
+    return `${walletName} already has a popup waiting. Open the extension, finish or dismiss it, then try again.`;
+  }
+  if (code === 4900 || /disconnected/i.test(text)) {
+    return `${walletName} is locked. Unlock it and try again.`;
+  }
+  if (/does not support|unsupported method|not supported/i.test(text)) {
+    return `${walletName} will not add a custom network from a site. Add ${CHAIN.name} manually: RPC ${RPC_URL}, chain id ${CHAIN.id}, symbol ${CHAIN.nativeCurrency.symbol}.`;
+  }
+  if (/native currency|symbol|decimals|invalid/i.test(text)) {
+    return `${walletName} rejected the network details: ${text.slice(0, 160)}`;
+  }
+  return text ? text.slice(0, 200) : `${walletName} could not connect.`;
+}
+
 function useDiscoveredWallets(): DetectedWallet[] {
   const [wallets, setWallets] = useState<DetectedWallet[]>([]);
 
@@ -105,7 +172,8 @@ type WalletState = {
   readClient: ReturnType<typeof createClient>;
   /** Only present once a wallet is connected. */
   writeClient: ReturnType<typeof createClient> | null;
-  connect: (wallet: DetectedWallet) => Promise<void>;
+  /** Resolves true when the wallet is connected and on Bradbury. */
+  connect: (wallet: DetectedWallet) => Promise<boolean | undefined>;
   disconnect: () => void;
   switchChain: () => Promise<void>;
   refreshBalance: () => Promise<void>;
@@ -153,26 +221,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       });
       return true;
     } catch (err: any) {
-      // 4902 means the wallet has never heard of this chain.
-      if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
+      // Wallets disagree on how they say "I have never heard of this chain".
+      // MetaMask uses 4902, several forks wrap it, and some just return the
+      // generic internal error, so the message is checked as well.
+      if (!isUnknownChainError(err)) throw err;
+
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [buildAddChainParams()],
+      });
+
+      // Some wallets add the chain without switching to it.
+      const after = await provider.request({ method: "eth_chainId" });
+      if (String(after).toLowerCase() !== CHAIN_ID_HEX.toLowerCase()) {
         await provider.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: CHAIN_ID_HEX,
-              chainName: CHAIN.name,
-              rpcUrls: [RPC_URL],
-              nativeCurrency: CHAIN.nativeCurrency,
-              blockExplorers: undefined,
-              blockExplorerUrls: CHAIN.blockExplorers?.default.url
-                ? [CHAIN.blockExplorers.default.url]
-                : undefined,
-            },
-          ],
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: CHAIN_ID_HEX }],
         });
-        return true;
       }
-      throw err;
+      return true;
     }
   }, []);
 
@@ -180,21 +247,43 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     async (target: DetectedWallet) => {
       setConnecting(true);
       setError(null);
+
+      // Step one: get an account. This is the part that must succeed.
+      let accounts: string[];
       try {
-        const accounts: string[] = await target.provider.request({
+        accounts = await target.provider.request({
           method: "eth_requestAccounts",
         });
-        if (!accounts?.length) throw new Error("No account was returned");
-
-        const ok = await ensureChain(target.provider);
-        setWallet(target);
-        setAddress(accounts[0] as `0x${string}`);
-        setChainOk(ok);
-        window.localStorage.setItem(STORAGE_KEY, target.rdns);
       } catch (err: any) {
-        setError(err?.message ?? "Could not connect");
-      } finally {
+        setError(describeWalletError(err, target.name));
         setConnecting(false);
+        return;
+      }
+
+      if (!accounts?.length) {
+        setError(
+          `${target.name} returned no account. Unlock it and try again.`
+        );
+        setConnecting(false);
+        return;
+      }
+
+      setWallet(target);
+      setAddress(accounts[0] as `0x${string}`);
+      window.localStorage.setItem(STORAGE_KEY, target.rdns);
+
+      // Step two: get onto Bradbury. A failure here is recoverable, so the
+      // connection is kept and the header offers a retry rather than throwing
+      // the whole session away.
+      try {
+        setChainOk(await ensureChain(target.provider));
+        setConnecting(false);
+        return true;
+      } catch (err: any) {
+        setChainOk(false);
+        setError(describeWalletError(err, target.name));
+        setConnecting(false);
+        return false;
       }
     },
     [ensureChain]
@@ -202,11 +291,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const switchChain = useCallback(async () => {
     if (!wallet) return;
+    setError(null);
     try {
-      const ok = await ensureChain(wallet.provider);
-      setChainOk(ok);
+      setChainOk(await ensureChain(wallet.provider));
     } catch (err: any) {
-      setError(err?.message ?? "Could not switch network");
+      setError(describeWalletError(err, wallet.name));
     }
   }, [wallet, ensureChain]);
 
