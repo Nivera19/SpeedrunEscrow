@@ -314,6 +314,7 @@ select {
   border: var(--border) solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-body);
   font-size: 14px;
   font-weight: 800;
@@ -341,8 +342,8 @@ select {
   box-shadow: 2px 2px 0 var(--ink);
 }
 
-.btn-lime { background: var(--lime); }
-.btn-coral { background: var(--coral); color: var(--paper); }
+.btn-lime { background: var(--lime); color: var(--ink); }
+.btn-coral { background: var(--coral); color: var(--ink); }
 .btn-cobalt { background: var(--cobalt); color: var(--paper); }
 .btn-violet { background: var(--violet); color: var(--paper); }
 .btn-ink { background: var(--ink); color: var(--paper); }
@@ -507,14 +508,36 @@ select {
   opacity: 0.8;
 }
 
-.stamp-compliant { color: var(--mint); }
-.stamp-violation { color: var(--coral); }
-.stamp-wrong_category { color: var(--amber); }
-.stamp-unclear { color: var(--amber); }
+/*
+ * Mint reads beautifully on the dark hero and washes out to 1.5:1 on a cream
+ * run card. The stamp defaults to a deeper green that clears AA on both, and
+ * the bright mint is restored only where the background is actually dark.
+ */
+.stamp-compliant { color: #0f8a5e; }
+.stamp-dismissed { color: #0f8a5e; }
+
+.band-ink .stamp-compliant,
+.band-ink .stamp-dismissed,
+.readout .stamp-compliant,
+.readout .stamp-dismissed {
+  color: var(--mint);
+}
+.stamp-violation { color: #e63d18; }
+.stamp-wrong_category { color: #a86a00; }
+.stamp-unclear { color: #a86a00; }
 .stamp-none { color: var(--ink-4); }
-.stamp-upheld { color: var(--coral); }
-.stamp-dismissed { color: var(--mint); }
-.stamp-inconclusive { color: var(--amber); }
+.stamp-upheld { color: #e63d18; }
+.stamp-inconclusive { color: #a86a00; }
+
+/* Amber is another light accent that only survives on a dark background. */
+.band-ink .stamp-wrong_category,
+.band-ink .stamp-unclear,
+.band-ink .stamp-inconclusive,
+.readout .stamp-wrong_category,
+.readout .stamp-unclear,
+.readout .stamp-inconclusive {
+  color: var(--amber);
+}
 
 .hero-card {
   border: var(--border) solid var(--paper);
@@ -575,6 +598,7 @@ select {
   border-top: var(--border) solid var(--ink);
   border-bottom: var(--border) solid var(--ink);
   background: var(--lime);
+  color: var(--ink);
 }
 
 .marquee-track {
@@ -613,6 +637,7 @@ select {
   border: var(--border) solid var(--ink);
   border-radius: var(--radius-m);
   background: var(--paper);
+  color: var(--ink);
   box-shadow: var(--shadow);
   padding: 24px;
   position: relative;
@@ -656,8 +681,8 @@ select {
 }
 
 .step-1 { background: var(--cobalt); color: var(--paper); }
-.step-2 { background: var(--amber); }
-.step-3 { background: var(--coral); color: var(--paper); }
+.step-2 { background: var(--amber); color: var(--ink); }
+.step-3 { background: var(--coral); color: var(--ink); }
 
 .step-index {
   font-family: var(--font-display);
@@ -720,6 +745,7 @@ select {
   border: 2px solid var(--ink);
   border-radius: var(--radius-s);
   background: var(--paper);
+  color: var(--ink);
   font-size: 14.5px;
   outline: none;
   transition: box-shadow 0.12s ease;
@@ -888,12 +914,13 @@ select {
   letter-spacing: 0.11em;
   text-transform: uppercase;
   background: var(--paper);
+  color: var(--ink);
 }
 
 .pill-open { background: var(--lime); }
 .pill-awarded { background: var(--mint); }
 .pill-refunded { background: var(--paper-3); }
-.pill-live { background: var(--coral); color: var(--paper); border-color: var(--ink); }
+.pill-live { background: var(--coral); color: var(--ink); border-color: var(--ink); }
 
 .dot {
   width: 7px;
@@ -915,6 +942,7 @@ select {
   border: 2px dashed var(--ink);
   border-radius: var(--radius-s);
   background: var(--paper-2);
+  color: var(--ink);
   padding: 16px;
   font-size: 14px;
   line-height: 1.6;
@@ -937,6 +965,7 @@ select {
   border: 2px solid var(--ink);
   border-radius: var(--radius-m);
   background: var(--paper);
+  color: var(--ink);
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -988,7 +1017,7 @@ select {
 }
 
 .check-ok { background: var(--mint); }
-.check-bad { background: var(--coral); color: var(--paper); }
+.check-bad { background: var(--coral); color: var(--ink); }
 
 .quote {
   border-left: 4px solid var(--ink);
@@ -1022,6 +1051,7 @@ select {
   bottom: 0;
   width: min(720px, 100vw);
   background: var(--paper);
+  color: var(--ink);
   border-left: var(--border) solid var(--ink);
   z-index: 401;
   overflow-y: auto;
@@ -1059,6 +1089,7 @@ select {
   border: 2px solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
+  color: var(--ink);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -1159,6 +1190,7 @@ select {
 
 .toast-err {
   background: var(--coral);
+  color: var(--ink);
   border-color: var(--ink);
   box-shadow: var(--shadow);
 }
@@ -1193,6 +1225,7 @@ select {
   border: 2px solid var(--ink);
   border-radius: var(--radius-s);
   background: var(--paper);
+  color: var(--ink);
   cursor: pointer;
   font-weight: 700;
   font-size: 14.5px;
@@ -1233,6 +1266,7 @@ select {
 .modal-card {
   width: min(430px, 100%);
   background: var(--paper);
+  color: var(--ink);
   border: var(--border) solid var(--ink);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-lg);
@@ -1260,6 +1294,7 @@ select {
   border-bottom: none;
   border-radius: 12px 12px 0 0;
   background: var(--paper-2);
+  color: var(--ink);
   cursor: pointer;
   font-size: 13px;
   font-weight: 800;
@@ -1345,10 +1380,11 @@ select {
   font-size: 13.5px;
   line-height: 1.5;
   background: var(--amber);
+  color: var(--ink);
 }
 
-.notice-info { background: var(--paper-2); }
-.notice-bad { background: var(--coral); color: var(--paper); }
+.notice-info { background: var(--paper-2); color: var(--ink); }
+.notice-bad { background: var(--coral); color: var(--ink); }
 
 .spin {
   width: 14px;
