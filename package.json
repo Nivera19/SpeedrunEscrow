@@ -1,0 +1,33 @@
+{
+  "name": "speedrun-escrow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Adjudicated prize escrow for speedrunning, built on GenLayer Testnet Bradbury",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "contract:lint": "genvm-lint check contracts/speedrun_escrow.py",
+    "contract:test": "pytest tests/direct -q",
+    "contract:deploy": "genlayer deploy --contract contracts/speedrun_escrow.py --args 1 1000",
+    "seed": "node scripts/seed.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "genlayer-js": "^1.1.8",
+    "next": "15.5.4",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "viem": "^2.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
