@@ -48,8 +48,8 @@ export function Limits() {
               body="The contract reads user controlled text: run notes, video titles, page content. Somebody will eventually write instructions in there aimed at the model. Markers are stripped, untrusted text is fenced and labelled as data, and no single field decides a verdict alone. But every validator reads the same poisoned page, so consensus does not fully save you. The challenge window is the last line of defence."
             />
             <Limit
-              title="Evidence can move after the fact"
-              body="A runner can make a video private once the money lands. Availability is rechecked at settlement, not only at submission, but archival snapshots are not enforced yet."
+              title="Evidence has to survive to settlement"
+              body="Settling re-fetches the video before any prize moves, so taking it down after verification does not get paid. What is still missing is an archival snapshot, so a video that is edited rather than removed, or that goes down and comes back around the settlement call, is not caught."
             />
             <Limit
               title="Validators use different models"

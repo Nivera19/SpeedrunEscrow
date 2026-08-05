@@ -311,15 +311,22 @@ def test_verify_run_twice_is_refused(direct_vm, escrow, direct_alice, direct_bob
 # ---------------------------------------------------------------------------
 
 
-def _verified_run(direct_vm, escrow, sponsor, runner):
+def _verified_run(direct_vm, escrow, sponsor, runner, verdict="COMPLIANT"):
     bounty_id = open_bounty(direct_vm, escrow, sponsor)
     run_id = _submit(direct_vm, escrow, bounty_id, runner)
     mock_oembed(direct_vm)
     mock_page(direct_vm)
     mock_checks(direct_vm)
-    mock_verdict(direct_vm, "COMPLIANT")
+    mock_verdict(direct_vm, verdict)
     escrow.verify_run(run_id)
     return bounty_id, run_id
+
+
+def _challenge(direct_vm, escrow, run_id, challenger, claim=None):
+    direct_vm.sender = challenger
+    direct_vm.value = GEN
+    escrow.challenge_run(run_id, claim or SPECIFIC_CLAIM)
+    direct_vm.value = 0
 
 
 SPECIFIC_CLAIM = (
@@ -538,6 +545,130 @@ def test_unclear_run_never_pays_out_on_its_own(
     set_chain_time(direct_vm, "2026-01-08T00:00:00Z")
     with direct_vm.expect_revert("needs a human panel"):
         escrow.settle(run_id)
+
+
+# ---------------------------------------------------------------------------
+# Every payout branch shares one gate
+#
+# A dismissed challenge used to pay out without rechecking the verdict, which
+# turned the challenge system into a way around the human panel: get UNCLEAR,
+# arrange a challenge, lose it, collect the prize.
+# ---------------------------------------------------------------------------
+
+
+def test_unclear_run_cannot_be_paid_by_losing_a_challenge(
+    direct_vm, escrow, direct_alice, direct_bob, direct_charlie
+):
+    _, run_id = _verified_run(
+        direct_vm, escrow, direct_alice, direct_bob, verdict="UNCLEAR"
+    )
+    assert escrow.get_run(run_id)["status"] == "VERIFIED"
+
+    _challenge(direct_vm, escrow, run_id, direct_charlie)
+    mock_challenge(direct_vm, "DISMISSED", specific=False)
+    assert escrow.judge_challenge(run_id) == "DISMISSED"
+
+    with direct_vm.expect_revert("needs a human panel"):
+        escrow.settle(run_id)
+
+    assert escrow.get_stats()["paid_atto"] == "0"
+
+
+def test_post_inconclusive_run_cannot_be_paid_by_losing_a_second_challenge(
+    direct_vm, escrow, direct_alice, direct_bob, direct_charlie
+):
+    set_chain_time(direct_vm, "2026-01-01T00:00:00Z")
+    _, run_id = _verified_run(direct_vm, escrow, direct_alice, direct_bob)
+
+    # First challenge cannot be decided, so the verdict drops to UNCLEAR.
+    _challenge(direct_vm, escrow, run_id, direct_charlie)
+    mock_challenge(direct_vm, "INCONCLUSIVE", specific=True)
+    escrow.judge_challenge(run_id)
+    assert escrow.settle(run_id) == "ESCALATED_BOND_RETURNED"
+    assert escrow.get_run(run_id)["verdict"] == "UNCLEAR"
+
+    # A second challenge that fails must not restore the payout. The earlier
+    # mock has to go first: mocks match in registration order, so the round one
+    # INCONCLUSIVE reply would otherwise answer round two as well.
+    _challenge(direct_vm, escrow, run_id, direct_charlie)
+    direct_vm.clear_mocks()
+    mock_challenge(direct_vm, "DISMISSED", specific=False)
+    assert escrow.judge_challenge(run_id) == "DISMISSED"
+
+    with direct_vm.expect_revert("needs a human panel"):
+        escrow.settle(run_id)
+
+    assert escrow.get_stats()["paid_atto"] == "0"
+
+
+def test_dismissed_challenge_still_pays_a_compliant_run(
+    direct_vm, escrow, direct_alice, direct_bob, direct_charlie
+):
+    _, run_id = _verified_run(direct_vm, escrow, direct_alice, direct_bob)
+    _challenge(direct_vm, escrow, run_id, direct_charlie)
+
+    mock_challenge(direct_vm, "DISMISSED", specific=False)
+    escrow.judge_challenge(run_id)
+
+    mock_oembed(direct_vm)
+    assert escrow.settle(run_id) == "PAID_RUNNER_BOND_FORFEITED"
+    assert escrow.get_stats()["paid_atto"] == str(10 * GEN)
+
+
+# ---------------------------------------------------------------------------
+# Evidence has to survive to settlement, not only to verification
+# ---------------------------------------------------------------------------
+
+
+def test_payout_is_refused_when_the_evidence_was_taken_down(
+    direct_vm, escrow, direct_alice, direct_bob
+):
+    set_chain_time(direct_vm, "2026-01-01T00:00:00Z")
+    _, run_id = _verified_run(direct_vm, escrow, direct_alice, direct_bob)
+    set_chain_time(direct_vm, "2026-01-08T00:00:00Z")
+
+    # The runner makes the video private after being verified.
+    direct_vm.clear_mocks()
+    mock_oembed(direct_vm, status=401)
+
+    assert escrow.settle(run_id) == "REJECTED_EVIDENCE_GONE"
+
+    run = escrow.get_run(run_id)
+    assert run["status"] == "REJECTED"
+    assert "no longer public" in run["verdict_reason"]
+    assert escrow.get_stats()["paid_atto"] == "0"
+
+
+def test_a_taken_down_video_returns_the_challenger_bond(
+    direct_vm, escrow, direct_alice, direct_bob, direct_charlie
+):
+    _, run_id = _verified_run(direct_vm, escrow, direct_alice, direct_bob)
+    _challenge(direct_vm, escrow, run_id, direct_charlie)
+
+    mock_challenge(direct_vm, "DISMISSED", specific=False)
+    escrow.judge_challenge(run_id)
+
+    direct_vm.clear_mocks()
+    mock_oembed(direct_vm, status=404)
+
+    assert escrow.settle(run_id) == "REJECTED_EVIDENCE_GONE"
+    run = escrow.get_run(run_id)
+    # The challenger doubted the run and the evidence then vanished. Forfeiting
+    # the bond on top of that would be the wrong way round.
+    assert run["bond_atto"] == "0"
+    assert escrow.get_stats()["paid_atto"] == "0"
+
+
+def test_evidence_still_public_at_settlement_pays_normally(
+    direct_vm, escrow, direct_alice, direct_bob
+):
+    set_chain_time(direct_vm, "2026-01-01T00:00:00Z")
+    _, run_id = _verified_run(direct_vm, escrow, direct_alice, direct_bob)
+    set_chain_time(direct_vm, "2026-01-08T00:00:00Z")
+
+    mock_oembed(direct_vm)
+    assert escrow.settle(run_id) == "PAID_RUNNER"
+    assert escrow.get_stats()["paid_atto"] == str(10 * GEN)
 
 
 def test_sponsor_can_refund_after_deadline(direct_vm, escrow, direct_alice):

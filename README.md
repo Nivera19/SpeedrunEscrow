@@ -39,7 +39,7 @@ the footage returns `UNCLEAR` and refuses to pay out.
 | Layer | What it decides | Consensus mechanism |
 |---|---|---|
 | 1. Arithmetic | Do the splits add up to the claimed time? | None needed. Pure deterministic math in the contract body, identical on every node. |
-| 2. Availability | Is the evidence actually public? | `gl.eq_principle.strict_eq` over a YouTube oEmbed probe, with only stable fields extracted. |
+| 2. Availability | Is the evidence actually public? | `gl.eq_principle.strict_eq` over a YouTube oEmbed probe, with only stable fields extracted. Run again at settlement. |
 | 3. Compliance | Does the run break a frozen rule? | `gl.vm.run_nondet` with a custom comparative validator: the validator reruns the judgment and must reach the same verdict and an overlapping cited clause. |
 
 Layer 3 is fed **ground truth** from layers 1 and 2 and is explicitly forbidden
@@ -76,13 +76,24 @@ create_bounty ──> submit_run ──> verify_run ──> [challenge window] �
 | Challenge upheld | Bond returned, run overturned, prize stays in escrow |
 | Challenge inconclusive | Bond returned, nobody punished, verdict downgraded to `UNCLEAR`, case waits for a human panel |
 | `UNCLEAR` verdict | Never settles on its own. Requires the panel. |
+| Evidence gone at settlement | Run rejected, challenger bond returned, nothing paid |
+
+### One gate, every payout branch
+
+Both branches that hand money to a runner go through a single function, and it
+enforces two things before anything moves:
+
+1. **The verdict is `COMPLIANT`.** Losing a challenge does not upgrade a
+   verdict. Without this shared gate an `UNCLEAR` run could be walked past the
+   human panel by arranging a challenge and losing it, which is a real hole that
+   existed here until review caught it.
+2. **The evidence is still public right now.** `settle` re-fetches rather than
+   trusting the check made at verification time.
 
 `INCONCLUSIVE` is a first class outcome on purpose. A contract that forces a
-binary answer will eventually force a wrong one with somebody else's money.
-
-The downgrade matters. Without it, a challenge serious enough to be undecidable
-would quietly time out into a payout one window later, which is the exact
-outcome the challenge was raised to prevent.
+binary answer will eventually force a wrong one with somebody else's money. The
+downgrade to `UNCLEAR` matters too: without it, a challenge serious enough to be
+undecidable would quietly time out into a payout one window later.
 
 ---
 
@@ -90,7 +101,7 @@ outcome the challenge was raised to prevent.
 
 ```
 contracts/speedrun_escrow.py   the Intelligent Contract
-tests/direct/                  32 direct mode tests, about 1.3s
+tests/direct/                  40 direct mode tests, about 1.6s
 conftest.py                    Windows shim for the test harness
 scripts/seed.mjs               open a bounty and submit runs
 scripts/verify.mjs             run verification for pending runs on chain
@@ -216,9 +227,11 @@ alone. Mitigation that does **not** work: multi validator consensus, because
 every validator reads the same poisoned page. The bonded challenge window is the
 real backstop.
 
-**Evidence can move after the fact.** A runner can make a video private once the
-money lands. Availability is rechecked at settlement, but archival snapshots are
-not enforced yet.
+**Evidence has to survive to settlement.** `settle` re-fetches the video before
+any prize moves, so taking it down after verification does not get paid: the run
+is rejected and any challenger bond goes home. What is still missing is an
+archival snapshot, so a video that is edited rather than removed, or that goes
+down and comes back around the settlement call, is not caught.
 
 **No human panel is wired up.** `UNCLEAR` and `INCONCLUSIVE` park correctly and
 refuse to pay out, which is the correct behaviour. The multisig that resolves

@@ -1220,16 +1220,7 @@ Return JSON only:
                 self._is_past(run.challenge_deadline),
                 "Challenge window is still open",
             )
-            _require(
-                run.verdict == VERDICT_COMPLIANT,
-                "Run needs a human panel before it can pay out",
-            )
-            self._pay(run.runner, prize)
-            run.status = RUN_SETTLED
-            bounty.status = BOUNTY_AWARDED
-            bounty.winner_run_id = run.run_id
-            self.total_paid_atto = u256(int(self.total_paid_atto) + prize)
-            return "PAID_RUNNER"
+            return self._pay_out_runner(run, bounty, prize, 0, "PAID_RUNNER")
 
         if run.status == RUN_CHALLENGED:
             _require(
@@ -1240,13 +1231,14 @@ Return JSON only:
             if run.challenge_verdict == CHALLENGE_DISMISSED:
                 # The challenge failed. The bond compensates the runner for the
                 # delay, which is what makes frivolous challenges expensive.
-                self._pay(run.runner, prize + bond)
-                run.status = RUN_SETTLED
-                run.bond_atto = u256(0)
-                bounty.status = BOUNTY_AWARDED
-                bounty.winner_run_id = run.run_id
-                self.total_paid_atto = u256(int(self.total_paid_atto) + prize)
-                return "PAID_RUNNER_BOND_FORFEITED"
+                #
+                # This still goes through the same gate as an unchallenged
+                # payout. Losing a challenge does not upgrade a verdict, and
+                # without the shared gate an UNCLEAR run could be walked past
+                # the human panel by arranging a challenge and losing it.
+                return self._pay_out_runner(
+                    run, bounty, prize, bond, "PAID_RUNNER_BOND_FORFEITED"
+                )
 
             if run.challenge_verdict == CHALLENGE_UPHELD:
                 # The challenge succeeded. The bond goes home and the prize stays
@@ -1275,6 +1267,60 @@ Return JSON only:
             return "ESCALATED_BOND_RETURNED"
 
         raise gl.vm.UserError(f"{ERROR_EXPECTED} Run is not in a settleable state")
+
+    def _pay_out_runner(
+        self,
+        run: Run,
+        bounty: Bounty,
+        prize: int,
+        bond: int,
+        success_code: str,
+    ) -> str:
+        """
+        The only path that hands a prize to a runner.
+
+        Every payout branch goes through here so the two conditions that must
+        hold before money moves are stated once instead of being restated,
+        and eventually forgotten, per branch:
+
+          1. The compliance verdict is COMPLIANT. UNCLEAR means a human panel
+             still owes an answer, and no route through the challenge system
+             may launder that into a payout.
+          2. The evidence is still public right now, not merely at submission.
+        """
+        _require(
+            run.verdict == VERDICT_COMPLIANT,
+            "Run needs a human panel before it can pay out",
+        )
+
+        # Re-fetch rather than trusting the check made at verification time. A
+        # runner who takes the video down after being verified has removed the
+        # only thing anybody could appeal against.
+        availability = self._check_availability(run.video_url)
+
+        if not bool(availability.get("reachable", False)):
+            run.status = RUN_REJECTED
+            run.verdict = VERDICT_VIOLATION
+            run.verdict_reason = (
+                "Evidence was no longer public at settlement: "
+                + _as_str(availability.get("detail"), 160)
+            )
+            # The challenger doubted the run and the evidence then vanished.
+            # Returning the bond is the only defensible outcome.
+            if bond > 0:
+                self._pay(run.challenger, bond)
+            run.bond_atto = u256(0)
+            self.total_verified = u256(max(0, int(self.total_verified) - 1))
+            self.total_rejected = u256(int(self.total_rejected) + 1)
+            return "REJECTED_EVIDENCE_GONE"
+
+        self._pay(run.runner, prize + bond)
+        run.status = RUN_SETTLED
+        run.bond_atto = u256(0)
+        bounty.status = BOUNTY_AWARDED
+        bounty.winner_run_id = run.run_id
+        self.total_paid_atto = u256(int(self.total_paid_atto) + prize)
+        return success_code
 
     @gl.public.write
     def refund_bounty(self, bounty_id: str) -> str:
