@@ -3,8 +3,8 @@
 Adjudicated prize escrow for speedrunning, built as a GenLayer Intelligent
 Contract on Testnet Bradbury with a Next.js frontend.
 
-**Live contract:** `0x43fD9B8264d9863F04930442b6b69b85F8BEd305`
-([explorer](https://explorer-bradbury.genlayer.com/address/0x43fD9B8264d9863F04930442b6b69b85F8BEd305))
+**Live contract:** `0xa8084E8129D837B29464E62aA8c34d9c03E931BE`
+([explorer](https://explorer-bradbury.genlayer.com/address/0xa8084E8129D837B29464E62aA8c34d9c03E931BE))
 
 ---
 
@@ -175,7 +175,7 @@ Vercel detects it with zero configuration.
 1. Push the repo to GitHub.
 2. Import it on Vercel. Framework preset is detected as Next.js.
 3. Add one environment variable:
-   `NEXT_PUBLIC_CONTRACT_ADDRESS = 0x43fD9B8264d9863F04930442b6b69b85F8BEd305`
+   `NEXT_PUBLIC_CONTRACT_ADDRESS = 0xa8084E8129D837B29464E62aA8c34d9c03E931BE`
 4. Deploy.
 
 Do **not** set `DEPLOYER_PRIVATE_KEY` on Vercel. It is only used by the local
