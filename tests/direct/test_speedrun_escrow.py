@@ -232,6 +232,114 @@ def test_generated_predicates_are_evaluated_against_verified_facts(escrow):
     assert "escape attempt" not in labels
 
 
+def test_the_check_generator_never_sees_a_count_shaped_variable(escrow):
+    """
+    Twice on Bradbury a model asked to check "the run must be a single unedited
+    segment" reached for the only count in scope, wrote split_count == 1, and
+    rejected an honest four split run. Renaming the field did not stop it and
+    neither did telling the model not to. Withholding the variable does.
+    """
+    module = sys.modules["_contract_speedrun_escrow"]
+
+    full = {
+        "claimed_ms": 1992340,
+        "claimed_time": "00:33:12.340",
+        "game": "OoT",
+        "category": "Any%",
+        "platform": "N64",
+        "timing_method": "RTA",
+        "split_count": 4,
+        "splits_provided": True,
+        "splits_reconcile": True,
+        "splits_delta_ms": 0,
+        "video_title": "run",
+        "video_author": "someone",
+        "run_notes": "notes",
+    }
+    visible = module._checkable_facts(full)
+
+    for hidden in (
+        "split_count",
+        "splits_provided",
+        "splits_reconcile",
+        "splits_delta_ms",
+        "run_notes",
+        "video_title",
+        "video_author",
+    ):
+        assert hidden not in visible, hidden
+
+    assert set(visible) == {
+        "claimed_ms",
+        "claimed_time",
+        "game",
+        "category",
+        "platform",
+        "timing_method",
+    }
+
+    # With the variable gone, the predicate that caused the incident no longer
+    # even passes the name check.
+    allowed = set(visible) | module._EXPRESSION_ALLOWED_NAMES
+    assert not module._expression_is_safe("split_count == 1", allowed)
+    assert module._expression_is_safe("claimed_ms < 2400000", allowed)
+
+
+def test_checks_are_dropped_when_their_label_names_something_invisible(escrow):
+    module = sys.modules["_contract_speedrun_escrow"]
+
+    for label in (
+        "Single Segment",
+        "single unedited segment",
+        "No splices",
+        "Unedited recording",
+        "No savestates",
+        "Emulator settings default",
+        "Correct game version",
+        "Original hardware only",
+        "Input display visible",
+    ):
+        assert not module._label_is_verifiable(label), label
+
+    for label in ("Time Limit", "Under 40 minutes", "Timing method is RTA"):
+        assert module._label_is_verifiable(label), label
+
+
+def test_a_check_must_depend_on_something_the_runner_supplied(escrow):
+    """
+    Of the facts a predicate can see, only the claimed time comes from the run.
+    Game, category, platform and timing method are copied from the bounty, so a
+    predicate built on them compares the bounty against itself and reports
+    SATISFIED regardless of what the runner did.
+
+    This is the guard that catches game specific trick names, which no deny
+    list could ever enumerate.
+    """
+    module = sys.modules["_contract_speedrun_escrow"]
+
+    real = [
+        "claimed_ms < 2400000",
+        "claimed_ms <= 1500000 and claimed_ms > 0",
+        "len(claimed_time) > 0",
+    ]
+    for expression in real:
+        assert module._expression_tests_the_run(expression), expression
+
+    tautological = [
+        # Comparing the bounty to itself.
+        "platform == 'N64'",
+        "timing_method == 'RTA'",
+        "category == 'Any%'",
+        # A trick name the label filter cannot enumerate, smuggled in as a
+        # string test against bounty metadata. Always true, proves nothing.
+        "'backwards long jump' not in category",
+        "'bottle adventure' not in game",
+        "'wrong warp' not in category.lower()",
+    ]
+    for expression in tautological:
+        assert not module._expression_tests_the_run(expression), expression
+
+
 def test_expressions_are_rejected_unless_every_name_is_a_verified_fact(escrow):
     """
     The failure this guards against actually happened on Bradbury. A generated

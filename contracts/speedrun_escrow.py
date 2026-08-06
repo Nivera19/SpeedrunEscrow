@@ -309,6 +309,89 @@ _EXPRESSION_ALLOWED_NAMES = set(_EXPRESSION_BUILTINS) | {
 }
 
 
+# Concepts no fact in this contract can decide. A generated check whose own
+# label reaches for one of these is discarded regardless of how it is written.
+_UNVERIFIABLE_CONCEPTS = (
+    "segment",
+    "splice",
+    "spliced",
+    "edit",
+    "unedited",
+    "cut",
+    "glitch",
+    "skip",
+    "savestate",
+    "save state",
+    "emulator",
+    "version",
+    "hardware",
+    "console",
+    "input display",
+    "single",
+    "continuous",
+    "one take",
+    "footage",
+    "recording",
+)
+
+
+def _checkable_facts(facts: dict) -> dict:
+    """
+    The subset of facts a generated predicate is allowed to see.
+
+    The split numbers are deliberately withheld. They are already reported to
+    the verdict prompt as ground truth, so a predicate adds nothing, and leaving
+    them visible is actively harmful: asked to check "the run must be a single
+    unedited segment", a model reaches for the only count shaped variable in
+    scope and writes split_count == 1. That is how an honest four split run got
+    rejected on Bradbury twice. Renaming the field and telling the model not to
+    do it were both tried and neither held. Removing the variable does.
+    """
+    allowed = ("claimed_ms", "claimed_time", "game", "category", "platform",
+               "timing_method")
+    return {key: facts[key] for key in allowed if key in facts}
+
+
+def _label_is_verifiable(label: str) -> bool:
+    """
+    Reject a check whose own description names something we cannot see.
+
+    This catches the recurring structural categories. It cannot catch game
+    specific trick names, since those are unbounded: bottle adventure, wrong
+    warp, backwards long jump, and one more invented next week. Those are
+    handled by _expression_tests_the_run instead.
+    """
+    lowered = label.lower()
+    for concept in _UNVERIFIABLE_CONCEPTS:
+        if concept in lowered:
+            return False
+    return True
+
+
+# The only checkable fact the runner actually supplies. Everything else in the
+# checkable set was typed by the sponsor when the bounty opened.
+_RUN_SUPPLIED_FACTS = ("claimed_ms", "claimed_time")
+
+
+def _expression_tests_the_run(expression: str) -> bool:
+    """
+    Require a generated check to depend on something the runner submitted.
+
+    Of the facts a predicate can see, only the claimed time comes from the run.
+    Game, category, platform and timing method are all copied from the bounty,
+    so comparing them to a rule compares the bounty against itself and reports
+    SATISFIED no matter what the runner did. That is worse than no check: it
+    hands the verdict prompt a confident fact about a rule nobody verified.
+
+    A predicate that never mentions the claimed time is not testing the run.
+    """
+    names = _identifiers(expression)
+    for fact in _RUN_SUPPLIED_FACTS:
+        if fact in names:
+            return True
+    return False
+
+
 def _strip_literals(expression: str) -> str:
     """
     Blank out quoted strings so their contents are not mistaken for variable
@@ -830,8 +913,11 @@ class SpeedrunEscrow(gl.Contract):
                 # already established deterministically above.
                 page = ""
 
-            checks = self._build_checks(rules_text, facts)
-            check_results = self._run_checks(checks, facts)
+            # The generator sees a deliberately narrow slice of the facts. See
+            # _checkable_facts for why the split numbers are withheld.
+            checkable = _checkable_facts(facts)
+            checks = self._build_checks(rules_text, checkable)
+            check_results = self._run_checks(checks, checkable)
 
             ground_truth_lines = [
                 f"- splits provided by the runner: {facts['splits_provided']}",
@@ -954,38 +1040,41 @@ Return JSON only:
         """
         Turn natural language rules into Python predicates over the fact dict.
 
-        Two guards sit around the model here. The prompt states exactly what
-        each variable measures, and every returned expression is then rejected
-        unless it only references known fact names. A predicate that reaches for
-        anything the contract has not verified never reaches the sandbox.
+        Three guards sit around the model, in decreasing order of how much they
+        can be relied on:
+
+        1. The variable list itself is narrow. Nothing shaped like a count of
+           anything is exposed, so a rule about recording segments has nothing
+           to latch onto.
+        2. Any expression naming something outside that list is rejected.
+        3. Any check whose own label names an unverifiable concept is dropped,
+           even when the expression itself parses cleanly.
+
+        The prompt asks for the same restraint, but prompts are the weakest of
+        the four and are not counted on.
         """
         prompt = f"""Convert mechanically checkable rules into Python expressions.
 
-You may only use these variables, and each one means exactly what is written:
+You may only use these variables. There are no others, and inventing one makes
+the check invalid:
 
-  claimed_ms       int, the final time in milliseconds
-  claimed_time     str, the same time formatted for humans
-  split_count      int, how many TIMING SPLITS the runner submitted.
-                   This says nothing about video editing or recording segments.
-  splits_provided  bool, whether the runner submitted splits at all
-  splits_reconcile bool, whether those splits add up to the claimed time
-  splits_delta_ms  int, by how much they are off
-  platform         str, the platform declared by the bounty
-  category         str, the category declared by the bounty
-  game             str, the game declared by the bounty
-  timing_method    str, RTA, IGT, or LRT
-  video_title      str, title from the video host
-  video_author     str, channel name from the video host
-  run_notes        str, free text the runner wrote
+  claimed_ms     int, the final time in milliseconds
+  claimed_time   str, the same time formatted for humans
+  game           str, the game declared by the bounty
+  category       str, the category declared by the bounty
+  platform       str, the platform declared by the bounty
+  timing_method  str, RTA, IGT, or LRT
 
-Convert a rule ONLY when it can be decided from those variables alone. Good
-candidates: a time limit, a required platform, a required timing method.
+Every expression MUST reference claimed_ms or claimed_time. Only the claimed
+time comes from the run itself. The other four were typed by the sponsor when
+the bounty opened, so a check built on them compares the bounty against itself
+and passes no matter what the runner did. In practice this means time limits.
 
-Do NOT convert, and simply omit, any rule about what happens on screen:
-glitches, skips, editing, splices, single segment recording, savestates,
-emulator settings, game version, or input display. None of those are in the
-variable list and no expression can decide them. Returning zero checks is a
-correct answer.
+Omit everything else. You cannot see the video, the recording, the game build,
+or what the runner did on screen, so rules about editing, segments, splices,
+glitches, skips, savestates, emulator settings, versions, or hardware are not
+convertible. Do not approximate them with a variable that happens to be a
+number. Returning an empty list is a correct and common answer.
 
 RULES:
 <<<RULES
@@ -1017,7 +1106,14 @@ Return JSON only, at most {MAX_CHECKS} entries:
             label = _as_str(item.get("rule"), 160)
             if not expression or not label:
                 continue
+            # The model's own label is the clearest signal of what it thought
+            # it was checking. If that names something invisible from here, the
+            # expression cannot be measuring it no matter how well it parses.
+            if not _label_is_verifiable(label):
+                continue
             if not _expression_is_safe(expression, allowed):
+                continue
+            if not _expression_tests_the_run(expression):
                 continue
             checks.append({"rule": label, "expression": expression})
         return checks
