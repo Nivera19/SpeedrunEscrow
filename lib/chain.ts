@@ -17,7 +17,7 @@ export const FAUCET_URL = "https://testnet-faucet.genlayer.foundation/";
  * when you deploy your own, which is what the deploy script prints.
  */
 export const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ??
-  "0xa8084E8129D837B29464E62aA8c34d9c03E931BE") as `0x${string}`;
+  "0x39b24Ab5b04FfE2ED6dC89C41462e88b302fCe1F") as `0x${string}`;
 
 export function txUrl(hash: string) {
   return `${EXPLORER_URL}/tx/${hash}`;

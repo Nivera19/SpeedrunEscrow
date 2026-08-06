@@ -3,8 +3,8 @@
 Adjudicated prize escrow for speedrunning, built as a GenLayer Intelligent
 Contract on Testnet Bradbury with a Next.js frontend.
 
-**Live contract:** `0xa8084E8129D837B29464E62aA8c34d9c03E931BE`
-([explorer](https://explorer-bradbury.genlayer.com/address/0xa8084E8129D837B29464E62aA8c34d9c03E931BE))
+**Live contract:** `0x39b24Ab5b04FfE2ED6dC89C41462e88b302fCe1F`
+([explorer](https://explorer-bradbury.genlayer.com/address/0x39b24Ab5b04FfE2ED6dC89C41462e88b302fCe1F))
 
 ---
 
@@ -101,7 +101,7 @@ undecidable would quietly time out into a payout one window later.
 
 ```
 contracts/speedrun_escrow.py   the Intelligent Contract
-tests/direct/                  40 direct mode tests, about 1.6s
+tests/direct/                  43 direct mode tests, about 1.8s
 conftest.py                    Windows shim for the test harness
 scripts/seed.mjs               open a bounty and submit runs
 scripts/verify.mjs             run verification for pending runs on chain
@@ -165,6 +165,15 @@ calls, then every validator repeats the work before comparing verdicts. Budget a
 minute or more per run, and expect Bradbury to apply backpressure under load.
 Both scripts back off and retry rather than dropping a transaction.
 
+### A size ceiling worth knowing about
+
+The contract source is transaction pubdata, and Bradbury rejects a deploy with
+`BlockPubdataLimitReached` once it grows past roughly 53kB. This file sits just
+under that, which is not much headroom. If a future change pushes it over, the
+fix is either to trim prose or to split the contract across files using the
+`py-genlayer-multi` runner. Measured by bisection: 50.8kB and 52.8kB deploy,
+54.3kB does not.
+
 ---
 
 ## Deploying to Vercel
@@ -175,7 +184,7 @@ Vercel detects it with zero configuration.
 1. Push the repo to GitHub.
 2. Import it on Vercel. Framework preset is detected as Next.js.
 3. Add one environment variable:
-   `NEXT_PUBLIC_CONTRACT_ADDRESS = 0xa8084E8129D837B29464E62aA8c34d9c03E931BE`
+   `NEXT_PUBLIC_CONTRACT_ADDRESS = 0x39b24Ab5b04FfE2ED6dC89C41462e88b302fCe1F`
 4. Deploy.
 
 Do **not** set `DEPLOYER_PRIVATE_KEY` on Vercel. It is only used by the local

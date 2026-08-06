@@ -1,19 +1,16 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 """
 SpeedrunEscrow
-==============
 
-Adjudicated prize escrow for speedrun submissions.
+A judge, not a video analyst. It never claims to watch the run, and settles
+money around three things validators can independently reproduce:
 
-The contract is a judge, not a video analyst. It never claims to watch the run.
-It settles money around three things validators can independently reproduce:
+  1. Availability of the evidence   -> web fetch, strict_eq
+  2. Arithmetic of the claimed time -> deterministic math on chain
+  3. Compliance with frozen rules   -> LLM with a comparative validator
 
-  1. Availability of the evidence     -> deterministic web fetch, strict_eq
-  2. Arithmetic of the claimed time   -> pure deterministic math on chain
-  3. Compliance with frozen rules     -> LLM judgment with a comparative validator
-
-Rules text is frozen and hashed at bounty creation, so a run can never be
-invalidated later by an edit on the leaderboard site.
+Rules are frozen and hashed at bounty creation, so a later edit on a
+leaderboard cannot invalidate a run judged here.
 """
 
 from genlayer import *
@@ -23,10 +20,8 @@ import typing
 from dataclasses import dataclass
 
 
-# ---------------------------------------------------------------------------
 # Error taxonomy. Validators use these prefixes to decide when to agree on a
 # failure and when to force leader rotation.
-# ---------------------------------------------------------------------------
 
 ERROR_EXPECTED = "[EXPECTED]"
 ERROR_EXTERNAL = "[EXTERNAL]"
@@ -55,9 +50,7 @@ VERDICT_WRONG_CATEGORY = "WRONG_CATEGORY"
 VERDICT_UNCLEAR = "UNCLEAR"
 
 ALLOWED_VERDICTS = (
-    VERDICT_COMPLIANT,
-    VERDICT_VIOLATION,
-    VERDICT_WRONG_CATEGORY,
+    VERDICT_COMPLIANT, VERDICT_VIOLATION, VERDICT_WRONG_CATEGORY,
     VERDICT_UNCLEAR,
 )
 
@@ -68,9 +61,7 @@ CHALLENGE_DISMISSED = "DISMISSED"
 CHALLENGE_INCONCLUSIVE = "INCONCLUSIVE"
 
 ALLOWED_CHALLENGE_VERDICTS = (
-    CHALLENGE_UPHELD,
-    CHALLENGE_DISMISSED,
-    CHALLENGE_INCONCLUSIVE,
+    CHALLENGE_UPHELD, CHALLENGE_DISMISSED, CHALLENGE_INCONCLUSIVE,
 )
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -81,9 +72,7 @@ MAX_TEXT_FIELD = 4000
 MAX_CHECKS = 12
 
 
-# ---------------------------------------------------------------------------
 # Storage records. Fields are append only: never insert in the middle.
-# ---------------------------------------------------------------------------
 
 
 @allow_storage
@@ -129,10 +118,8 @@ class Run:
     challenge_reason: str
 
 
-# ---------------------------------------------------------------------------
 # Pure helpers. These run deterministically inside the contract body, so every
 # validator computes the exact same numbers with no consensus round needed.
-# ---------------------------------------------------------------------------
 
 
 def _clip(text: str, limit: int) -> str:
@@ -148,17 +135,10 @@ def _defuse(text: str) -> str:
     """
     cleaned = text
     for marker in (
-        "[SYSTEM]",
-        "[/SYSTEM]",
-        "<|im_start|>",
-        "<|im_end|>",
-        "<|system|>",
-        "###SYSTEM",
-        "ignore previous instructions",
-        "Ignore previous instructions",
-        "IGNORE PREVIOUS INSTRUCTIONS",
-        "disregard the above",
-        "Disregard the above",
+        "[SYSTEM]", "[/SYSTEM]", "<|im_start|>", "<|im_end|>", "<|system|>",
+        "###SYSTEM", "ignore previous instructions",
+        "Ignore previous instructions", "IGNORE PREVIOUS INSTRUCTIONS",
+        "disregard the above", "Disregard the above",
     ):
         cleaned = cleaned.replace(marker, "[redacted-marker]")
     return cleaned
@@ -192,13 +172,9 @@ def _split_audit(claimed_ms: int, splits_json: str) -> dict:
     splits = _parse_splits(splits_json)
     if len(splits) == 0:
         return {
-            "provided": False,
-            "segments": 0,
-            "sum_ms": 0,
-            "claimed_ms": claimed_ms,
-            "delta_ms": 0,
-            "consistent": False,
-            "negative_segment": False,
+            "provided": False, "segments": 0, "sum_ms": 0,
+            "claimed_ms": claimed_ms, "delta_ms": 0,
+            "consistent": False, "negative_segment": False,
         }
 
     total = 0
@@ -212,13 +188,10 @@ def _split_audit(claimed_ms: int, splits_json: str) -> dict:
     if delta < 0:
         delta = -delta
 
+    # One frame at 60 fps is about 17ms. Two frames of rounding allowed.
     return {
-        "provided": True,
-        "segments": len(splits),
-        "sum_ms": total,
-        "claimed_ms": claimed_ms,
-        # One frame at 60 fps is about 17ms. Allow two frames of rounding.
-        "delta_ms": delta,
+        "provided": True, "segments": len(splits), "sum_ms": total,
+        "claimed_ms": claimed_ms, "delta_ms": delta,
         "consistent": (not negative) and delta <= 34,
         "negative_segment": negative,
     }
@@ -277,61 +250,22 @@ def _normalize_challenge_verdict(raw: typing.Any) -> str:
 
 
 _EXPRESSION_BUILTINS = (
-    "len",
-    "abs",
-    "min",
-    "max",
-    "any",
-    "all",
-    "int",
-    "str",
-    "bool",
-    "sorted",
-    "sum",
-    "lower",
-    "upper",
-    "strip",
-    "startswith",
-    "endswith",
+    "len", "abs", "min", "max", "any", "all", "int", "str", "bool",
+    "sorted", "sum", "lower", "upper", "strip", "startswith", "endswith",
 )
 
 _EXPRESSION_ALLOWED_NAMES = set(_EXPRESSION_BUILTINS) | {
-    "True",
-    "False",
-    "None",
-    "and",
-    "or",
-    "not",
-    "in",
-    "is",
-    "if",
-    "else",
+    "True", "False", "None", "and", "or", "not", "in", "is", "if", "else",
 }
 
 
 # Concepts no fact in this contract can decide. A generated check whose own
 # label reaches for one of these is discarded regardless of how it is written.
 _UNVERIFIABLE_CONCEPTS = (
-    "segment",
-    "splice",
-    "spliced",
-    "edit",
-    "unedited",
-    "cut",
-    "glitch",
-    "skip",
-    "savestate",
-    "save state",
-    "emulator",
-    "version",
-    "hardware",
-    "console",
-    "input display",
-    "single",
-    "continuous",
-    "one take",
-    "footage",
-    "recording",
+    "segment", "splice", "spliced", "edit", "unedited", "cut", "glitch",
+    "skip", "savestate", "save state", "emulator", "version", "hardware",
+    "console", "input display", "single", "continuous", "one take",
+    "footage", "recording",
 )
 
 
@@ -339,13 +273,14 @@ def _checkable_facts(facts: dict) -> dict:
     """
     The subset of facts a generated predicate is allowed to see.
 
-    The split numbers are deliberately withheld. They are already reported to
-    the verdict prompt as ground truth, so a predicate adds nothing, and leaving
-    them visible is actively harmful: asked to check "the run must be a single
-    unedited segment", a model reaches for the only count shaped variable in
-    scope and writes split_count == 1. That is how an honest four split run got
-    rejected on Bradbury twice. Renaming the field and telling the model not to
-    do it were both tried and neither held. Removing the variable does.
+    THE INCIDENT, referenced from the other guards below. Asked to check "a
+    single unedited segment", a model reached for the only count shaped
+    variable in scope and wrote split_count == 1. An honest four split run was
+    rejected on Bradbury twice. Renaming the field and instructing the model
+    were both tried and neither held. Removing the variable did.
+
+    The split numbers lose nothing by going: the verdict prompt already gets
+    them as ground truth.
     """
     allowed = ("claimed_ms", "claimed_time", "game", "category", "platform",
                "timing_method")
@@ -356,10 +291,8 @@ def _label_is_verifiable(label: str) -> bool:
     """
     Reject a check whose own description names something we cannot see.
 
-    This catches the recurring structural categories. It cannot catch game
-    specific trick names, since those are unbounded: bottle adventure, wrong
-    warp, backwards long jump, and one more invented next week. Those are
-    handled by _expression_tests_the_run instead.
+    Catches structural categories only. Game specific trick names are
+    unbounded, so those fall to _expression_tests_the_run.
     """
     lowered = label.lower()
     for concept in _UNVERIFIABLE_CONCEPTS:
@@ -377,13 +310,11 @@ def _expression_tests_the_run(expression: str) -> bool:
     """
     Require a generated check to depend on something the runner submitted.
 
-    Of the facts a predicate can see, only the claimed time comes from the run.
-    Game, category, platform and timing method are all copied from the bounty,
-    so comparing them to a rule compares the bounty against itself and reports
-    SATISFIED no matter what the runner did. That is worse than no check: it
-    hands the verdict prompt a confident fact about a rule nobody verified.
-
-    A predicate that never mentions the claimed time is not testing the run.
+    Only the claimed time comes from the run. Game, category, platform and
+    timing method are copied from the bounty, so a predicate built on them
+    compares the bounty against itself and reports SATISFIED whatever the
+    runner did. That is worse than no check: it hands the verdict prompt a
+    confident fact about a rule nobody verified.
     """
     names = _identifiers(expression)
     for fact in _RUN_SUPPLIED_FACTS:
@@ -431,13 +362,11 @@ def _identifiers(expression: str) -> set:
 
 def _expression_is_safe(expression: str, allowed: set) -> bool:
     """
-    Reject a generated predicate unless every name in it is a fact the contract
-    actually verified.
+    Reject a predicate unless every name in it is a fact the contract verified.
 
-    This is the guard that matters. A model asked to check "the run must be a
-    single unedited segment" will happily reach for whatever variable sounds
-    closest, and a predicate built on a misread fact produces a confident wrong
-    answer that the verdict prompt is then told to trust.
+    A model reaches for whatever variable sounds closest, and a predicate built
+    on a misread fact yields a confident wrong answer the verdict prompt is
+    then told to trust. See _checkable_facts.
     """
     if "__" in expression or "import" in expression or "lambda" in expression:
         return False
@@ -451,24 +380,15 @@ def _expression_is_safe(expression: str, allowed: set) -> bool:
 
 def _eval_checks(checks: list, facts: dict) -> list:
     """
-    Evaluate model generated predicates against the verified fact dictionary.
+    Evaluate model generated predicates against the verified facts.
 
-    Runs with a starved builtins map and no access to the contract, and is only
-    ever invoked from inside a sandbox. A predicate that raises is dropped: a
-    model writing bad Python must never be able to fail somebody's run.
+    Starved builtins, no contract access, sandbox only. A predicate that
+    raises is dropped: bad model Python must never fail somebody's run.
     """
     safe_builtins = {
-        "len": len,
-        "abs": abs,
-        "min": min,
-        "max": max,
-        "any": any,
-        "all": all,
-        "int": int,
-        "str": str,
-        "bool": bool,
-        "sorted": sorted,
-        "sum": sum,
+        "len": len, "abs": abs, "min": min, "max": max, "any": any,
+        "all": all, "int": int, "str": str, "bool": bool,
+        "sorted": sorted, "sum": sum,
     }
     results = []
     for check in checks:
@@ -528,7 +448,6 @@ def _handle_leader_error(leaders_res, leader_fn) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
 
 
 class SpeedrunEscrow(gl.Contract):
@@ -587,9 +506,8 @@ class SpeedrunEscrow(gl.Contract):
 
     def _deadline_after_window(self, start_iso: str) -> str:
         """
-        Challenge deadlines are stored as an ISO timestamp plus an hour budget.
-        GenVM gives the transaction datetime as an ISO string, and ISO 8601 UTC
-        strings compare correctly with plain lexicographic ordering.
+        GenVM gives the transaction datetime as an ISO string, and ISO 8601
+        UTC strings order correctly lexicographically.
         """
         from datetime import datetime, timedelta, timezone
 
@@ -629,10 +547,9 @@ class SpeedrunEscrow(gl.Contract):
         deadline_iso: str,
     ) -> str:
         """
-        Fund a prize and freeze the rules that will govern every run under it.
-
-        The rules are stored verbatim and hashed. A later edit on speedrun.com
-        cannot retroactively invalidate a run that was judged under this text.
+        Fund a prize and freeze the rules governing every run under it. The
+        text is stored verbatim and hashed, so a later edit on a leaderboard
+        cannot retroactively invalidate a run judged under it.
         """
         prize = int(gl.message.value)
         _require(prize > 0, "Prize must be greater than zero")
@@ -724,13 +641,9 @@ class SpeedrunEscrow(gl.Contract):
     @gl.public.write
     def verify_run(self, run_id: str) -> str:
         """
-        Judge a submitted run against the frozen rules.
-
-        Three layers, in order of how much they can be trusted:
-
-          1. Deterministic arithmetic, computed on chain by every node.
-          2. Availability of the evidence, agreed with strict equality.
-          3. Rule compliance, judged by a model and verified comparatively.
+        Judge a run against the frozen rules, in three layers ordered by
+        trust: on chain arithmetic, evidence availability under strict
+        equality, then model judgment with a comparative validator.
         """
         run = self._run(run_id)
         _require(run.status == RUN_SUBMITTED, "Run is not awaiting verification")
@@ -795,11 +708,11 @@ class SpeedrunEscrow(gl.Contract):
 
     def _check_availability(self, video_url: str) -> dict:
         """
-        Deterministic evidence check, agreed with strict equality.
+        Evidence check, agreed with strict equality.
 
-        For YouTube the oEmbed endpoint answers 200 for public videos and 401 or
-        404 for private, deleted, or region locked ones, and returns a small
-        stable payload. Anything else falls back to a plain status probe.
+        YouTube oEmbed answers 200 for public videos and 401 or 404 for
+        private, deleted or region locked ones, with a small stable payload.
+        Anything else falls back to a status probe.
         """
         use_oembed = _is_youtube(video_url)
         probe_url = _oembed_url(video_url) if use_oembed else video_url
@@ -815,28 +728,22 @@ class SpeedrunEscrow(gl.Contract):
 
             if status in (401, 403, 404, 410):
                 return {
-                    "reachable": False,
-                    "status": status,
-                    "title": "",
-                    "author": "",
+                    "reachable": False, "status": status,
+                    "title": "", "author": "",
                     "detail": f"host responded {status}",
                 }
 
             if status != 200:
                 return {
-                    "reachable": False,
-                    "status": status,
-                    "title": "",
-                    "author": "",
+                    "reachable": False, "status": status,
+                    "title": "", "author": "",
                     "detail": f"unexpected status {status}",
                 }
 
             if not use_oembed:
                 return {
-                    "reachable": True,
-                    "status": 200,
-                    "title": "",
-                    "author": "",
+                    "reachable": True, "status": 200,
+                    "title": "", "author": "",
                     "detail": "reachable",
                 }
 
@@ -872,20 +779,16 @@ class SpeedrunEscrow(gl.Contract):
         availability: dict,
     ) -> dict:
         """
-        Rule compliance with a comparative validator.
-
-        The model never gets to invent numbers. Arithmetic arrives as ground
-        truth, and any rule that can be expressed as a Python predicate is
-        turned into one and evaluated in a sandbox before the verdict prompt.
+        Rule compliance with a comparative validator. The model never invents
+        numbers: arithmetic arrives as ground truth, and mechanical rules
+        become predicates evaluated in a sandbox first.
         """
         safe_notes = _defuse(_clip(run_notes, MAX_TEXT_FIELD))
         safe_title = _defuse(_as_str(availability.get("title"), 300))
         safe_author = _defuse(_as_str(availability.get("author"), 120))
 
-        # Every key here is named for what it actually measures. An earlier
-        # version exposed "segments" for the number of timing splits, and a
-        # generated predicate read it as the number of video segments and
-        # failed an honest run on a rule about single segment recording.
+        # Every key is named for what it measures. An earlier version called
+        # split_count "segments" and a predicate read it as video segments.
         facts = {
             "game": game,
             "category": category,
@@ -1040,18 +943,12 @@ Return JSON only:
         """
         Turn natural language rules into Python predicates over the fact dict.
 
-        Three guards sit around the model, in decreasing order of how much they
-        can be relied on:
+        Four guards, weakest last:
 
-        1. The variable list itself is narrow. Nothing shaped like a count of
-           anything is exposed, so a rule about recording segments has nothing
-           to latch onto.
-        2. Any expression naming something outside that list is rejected.
-        3. Any check whose own label names an unverifiable concept is dropped,
-           even when the expression itself parses cleanly.
-
-        The prompt asks for the same restraint, but prompts are the weakest of
-        the four and are not counted on.
+        1. The variable list is narrow and exposes no count of anything.
+        2. An expression must reference a run supplied fact.
+        3. Names outside the list are rejected.
+        4. The prompt asks for the same restraint, and is not relied on.
         """
         prompt = f"""Convert mechanically checkable rules into Python expressions.
 
@@ -1106,9 +1003,9 @@ Return JSON only, at most {MAX_CHECKS} entries:
             label = _as_str(item.get("rule"), 160)
             if not expression or not label:
                 continue
-            # The model's own label is the clearest signal of what it thought
-            # it was checking. If that names something invisible from here, the
-            # expression cannot be measuring it no matter how well it parses.
+            # The label is the clearest signal of what the model thought it
+            # was checking. If it names something invisible, the expression
+            # is not measuring it however well it parses.
             if not _label_is_verifiable(label):
                 continue
             if not _expression_is_safe(expression, allowed):
@@ -1325,13 +1222,11 @@ Return JSON only:
             )
 
             if run.challenge_verdict == CHALLENGE_DISMISSED:
-                # The challenge failed. The bond compensates the runner for the
-                # delay, which is what makes frivolous challenges expensive.
-                #
-                # This still goes through the same gate as an unchallenged
-                # payout. Losing a challenge does not upgrade a verdict, and
-                # without the shared gate an UNCLEAR run could be walked past
-                # the human panel by arranging a challenge and losing it.
+                # The bond compensates the runner for the delay, which makes
+                # frivolous challenges expensive. Still goes through the same
+                # gate: losing a challenge does not upgrade a verdict, and
+                # without that an UNCLEAR run could be walked past the panel
+                # by arranging a challenge and losing it.
                 return self._pay_out_runner(
                     run, bounty, prize, bond, "PAID_RUNNER_BOND_FORFEITED"
                 )
@@ -1346,13 +1241,10 @@ Return JSON only:
                 self.total_rejected = u256(int(self.total_rejected) + 1)
                 return "RUN_OVERTURNED_BOND_RETURNED"
 
-            # INCONCLUSIVE. Nobody is punished and nothing is awarded on a coin
-            # flip. The bond is returned and the case waits for the panel.
-            #
-            # The verdict is downgraded to UNCLEAR on purpose. A challenge
-            # serious enough to be undecidable must not quietly time out into a
-            # payout one window later, which is what would happen if the run
-            # kept its COMPLIANT verdict.
+            # INCONCLUSIVE. Nothing is awarded on a coin flip: the bond goes
+            # back and the case waits for the panel. The verdict drops to
+            # UNCLEAR so a challenge serious enough to be undecidable cannot
+            # quietly time out into a payout one window later.
             self._pay(run.challenger, bond)
             run.status = RUN_VERIFIED
             run.bond_atto = u256(0)
@@ -1485,39 +1377,33 @@ Return JSON only:
     def get_bounty(self, bounty_id: str) -> dict:
         bounty = self._bounty(bounty_id)
         return {
-            "bounty_id": bounty.bounty_id,
-            "sponsor": bounty.sponsor.as_hex,
-            "game": bounty.game,
-            "category": bounty.category,
-            "platform": bounty.platform,
+            "bounty_id": bounty.bounty_id, "game": bounty.game,
+            "sponsor": bounty.sponsor.as_hex, "status": bounty.status,
+            "category": bounty.category, "platform": bounty.platform,
             "rules_text": bounty.rules_text,
             "rules_hash": bounty.rules_hash,
             "timing_method": bounty.timing_method,
             "prize_atto": str(bounty.prize_atto),
             "deadline_iso": bounty.deadline_iso,
-            "status": bounty.status,
             "winner_run_id": bounty.winner_run_id,
             "created_at": bounty.created_at,
             "run_count": int(bounty.run_count),
-            "required_bond_atto": str(self._required_bond(int(bounty.prize_atto))),
+            "required_bond_atto": str(
+                self._required_bond(int(bounty.prize_atto))
+            ),
         }
 
     @gl.public.view
     def get_run(self, run_id: str) -> dict:
         run = self._run(run_id)
         return {
-            "run_id": run.run_id,
-            "bounty_id": run.bounty_id,
-            "runner": run.runner.as_hex,
-            "video_url": run.video_url,
+            "run_id": run.run_id, "bounty_id": run.bounty_id,
+            "runner": run.runner.as_hex, "video_url": run.video_url,
             "claimed_ms": int(run.claimed_ms),
             "claimed_time": _format_ms(int(run.claimed_ms)),
-            "splits_json": run.splits_json,
-            "run_notes": run.run_notes,
-            "status": run.status,
-            "submitted_at": run.submitted_at,
-            "evidence_json": run.evidence_json,
-            "verdict": run.verdict,
+            "splits_json": run.splits_json, "run_notes": run.run_notes,
+            "status": run.status, "submitted_at": run.submitted_at,
+            "evidence_json": run.evidence_json, "verdict": run.verdict,
             "verdict_reason": run.verdict_reason,
             "challenge_deadline": run.challenge_deadline,
             "challenger": run.challenger.as_hex,
